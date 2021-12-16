@@ -47,6 +47,7 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 I2C_HandleTypeDef *g_hi2c1;
+uint8_t enterTimeConfig = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,16 +67,34 @@ void TimeConfiguration()
 	char msg[40];
 	uint8_t hour = 0, minute = 0;
 
-	strcpy(msg, "Entering time configuration\r\n");
+	while (enterTimeConfig == 1)
+	{
+		if (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET)
+		{
+			while (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET) ;
+			hour++;
+
+			sprintf(msg, "Incrementing hour to %i\r\n", hour);
+			HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
+		}
+	}
+
+	while (enterTimeConfig == 2)
+	{
+		if (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET)
+		{
+			while (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET) ;
+			minute++;
+
+			sprintf(msg, "Incrementing minute to %i\r\n", hour);
+			HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
+		}
+	}
+
+	strcpy(msg, "Done with time config\r\n");
 	HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 
-	HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_SET);
-
-	// Wait for button press, then release
-	while (HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin) != GPIO_PIN_RESET &&
-			HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) != GPIO_PIN_RESET) ;
-
-	HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_RESET);
+	enterTimeConfig = 0;
 }
 
 /* USER CODE END 0 */
@@ -140,13 +159,17 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if (HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin) == GPIO_PIN_SET)
-	  {
-		  while (HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin) == GPIO_PIN_SET)
-			  ;
+		if (enterTimeConfig)
+		{
+			strcpy(msg, "Entering time configuration\r\n");
+			HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 
-		  TimeConfiguration();
-	  }
+			HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_SET);
+
+			TimeConfiguration();
+
+			HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_RESET);
+		}
 
 	  if (lastRead == 0 || HAL_GetTick() - lastRead > 5000)
 	  {
@@ -327,16 +350,30 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(ConfigLED_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : BTN2_Pin BTN1_Pin */
-  GPIO_InitStruct.Pin = BTN2_Pin|BTN1_Pin;
+  /*Configure GPIO pin : BTN2_Pin */
+  GPIO_InitStruct.Pin = BTN2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(BTN2_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : BTN1_Pin */
+  GPIO_InitStruct.Pin = BTN1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(BTN1_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI4_15_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
 
 }
 
 /* USER CODE BEGIN 4 */
 
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	enterTimeConfig++;
+}
 /* USER CODE END 4 */
 
 /**

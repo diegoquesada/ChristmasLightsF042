@@ -41,8 +41,6 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-ADC_HandleTypeDef hadc;
-
 I2C_HandleTypeDef hi2c1;
 
 UART_HandleTypeDef huart2;
@@ -56,9 +54,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
-static void MX_ADC_Init(void);
 /* USER CODE BEGIN PFP */
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -68,7 +64,7 @@ void TimeConfiguration()
 {
 	HAL_StatusTypeDef status = HAL_OK;
 	char msg[40];
-	uint32_t potValue = 0;
+	uint8_t hour = 0, minute = 0;
 
 	strcpy(msg, "Entering time configuration\r\n");
 	HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
@@ -76,52 +72,8 @@ void TimeConfiguration()
 	HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_SET);
 
 	// Wait for button press, then release
-	while (HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin) == GPIO_PIN_RESET) ;
-	while (HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin) == GPIO_PIN_SET) ;
-
-	status = HAL_ADC_Start(&hadc);
-	if (status == HAL_OK)
-	{
-	  HAL_ADC_PollForConversion(&hadc, 1000);
-	  potValue = HAL_ADC_GetValue(&hadc);
-	  HAL_ADC_Stop(&hadc);
-
-	  sprintf(msg, "Pot value is %lu\r\n", potValue);
-	  HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
-	}
-
-#if 0
-	// Wait for button press, then release
-	while (HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin) == GPIO_PIN_RESET) ;
-	while (HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin) == GPIO_PIN_SET) ;
-
-	status = HAL_ADC_Start(&hadc);
-	if (status == HAL_OK)
-	{
-	  HAL_ADC_PollForConversion(&hadc, 1000);
-	  potValue = HAL_ADC_GetValue(&hadc);
-	  HAL_ADC_Stop(&hadc);
-
-	  sprintf(msg, "Pot value is %lu\r\n", potValue);
-	  HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
-	}
-
-	// Wait for button press, then release
-	while (HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin) == GPIO_PIN_RESET) ;
-	while (HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin) == GPIO_PIN_SET) ;
-
-	status = HAL_ADC_Start(&hadc);
-	if (status == HAL_OK)
-	{
-	  HAL_ADC_PollForConversion(&hadc, 1000);
-	  potValue = HAL_ADC_GetValue(&hadc);
-	  HAL_ADC_Stop(&hadc);
-
-	  sprintf(msg, "Pot value is %lu\r\n", potValue);
-	  HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
-	}
-#endif
-
+	while (HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin) != GPIO_PIN_RESET &&
+			HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) != GPIO_PIN_RESET) ;
 
 	HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_RESET);
 }
@@ -162,11 +114,10 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
-  MX_ADC_Init();
   /* USER CODE BEGIN 2 */
   g_hi2c1 = &hi2c1;
 
-	strcpy(msg, "Christmas Lights 0.1\r\n");
+	strcpy(msg, "Christmas Lights 0.2\r\n");
 	HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 
 	status = HAL_I2C_IsDeviceReady(&hi2c1, 0x29 << 1, 10, HAL_MAX_DELAY);
@@ -203,7 +154,7 @@ int main(void)
 		  sprintf(msg, "Lux is %li\r\n", lux);
 		  HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 		  lastRead = HAL_GetTick();
-#if 0
+
 		  if (lux < 500)
 		  {
 			  HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_Pin, GPIO_PIN_SET);
@@ -212,7 +163,6 @@ int main(void)
 		  {
 			  HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_Pin, GPIO_PIN_RESET);
 		  }
-#endif
 	  }
     /* USER CODE END WHILE */
 
@@ -234,11 +184,9 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_HSI14;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSI14State = RCC_HSI14_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.HSI14CalibrationValue = 16;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -262,58 +210,6 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-}
-
-/**
-  * @brief ADC Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_ADC_Init(void)
-{
-
-  /* USER CODE BEGIN ADC_Init 0 */
-
-  /* USER CODE END ADC_Init 0 */
-
-  ADC_ChannelConfTypeDef sConfig = {0};
-
-  /* USER CODE BEGIN ADC_Init 1 */
-
-  /* USER CODE END ADC_Init 1 */
-  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
-  */
-  hadc.Instance = ADC1;
-  hadc.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  hadc.Init.Resolution = ADC_RESOLUTION_12B;
-  hadc.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc.Init.ScanConvMode = ADC_SCAN_DIRECTION_FORWARD;
-  hadc.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
-  hadc.Init.LowPowerAutoWait = DISABLE;
-  hadc.Init.LowPowerAutoPowerOff = DISABLE;
-  hadc.Init.ContinuousConvMode = DISABLE;
-  hadc.Init.DiscontinuousConvMode = DISABLE;
-  hadc.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc.Init.DMAContinuousRequests = DISABLE;
-  hadc.Init.Overrun = ADC_OVR_DATA_PRESERVED;
-  if (HAL_ADC_Init(&hadc) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /** Configure for the selected ADC regular channel to be converted.
-  */
-  sConfig.Channel = ADC_CHANNEL_0;
-  sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
-  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
-  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN ADC_Init 2 */
-
-  /* USER CODE END ADC_Init 2 */
-
 }
 
 /**
@@ -412,13 +308,17 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : BTN1_Pin */
-  GPIO_InitStruct.Pin = BTN1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  /*Configure GPIO pin : RELAY_Pin */
+  GPIO_InitStruct.Pin = RELAY_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(BTN1_GPIO_Port, &GPIO_InitStruct);
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(RELAY_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : ConfigLED_Pin */
   GPIO_InitStruct.Pin = ConfigLED_Pin;
@@ -426,6 +326,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(ConfigLED_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : BTN2_Pin BTN1_Pin */
+  GPIO_InitStruct.Pin = BTN2_Pin|BTN1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 }
 

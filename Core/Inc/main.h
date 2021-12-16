@@ -59,20 +59,22 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define MCO_Pin GPIO_PIN_0
 #define MCO_GPIO_Port GPIOF
-#define POT_Pin GPIO_PIN_0
-#define POT_GPIO_Port GPIOA
 #define VCP_TX_Pin GPIO_PIN_2
 #define VCP_TX_GPIO_Port GPIOA
-#define BTN1_Pin GPIO_PIN_8
-#define BTN1_GPIO_Port GPIOA
+#define RELAY_Pin GPIO_PIN_8
+#define RELAY_GPIO_Port GPIOA
 #define SWDIO_Pin GPIO_PIN_13
 #define SWDIO_GPIO_Port GPIOA
 #define SWCLK_Pin GPIO_PIN_14
 #define SWCLK_GPIO_Port GPIOA
 #define VCP_RX_Pin GPIO_PIN_15
 #define VCP_RX_GPIO_Port GPIOA
-#define ConfigLED_Pin GPIO_PIN_4
+#define ConfigLED_Pin GPIO_PIN_3
 #define ConfigLED_GPIO_Port GPIOB
+#define BTN2_Pin GPIO_PIN_4
+#define BTN2_GPIO_Port GPIOB
+#define BTN1_Pin GPIO_PIN_5
+#define BTN1_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */

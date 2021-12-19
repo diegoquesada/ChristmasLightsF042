@@ -33,6 +33,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define LIGHT_THRESHOLD 100 // How dim it must be (in lux) to turn relay on.
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -136,6 +137,10 @@ void TimeConfiguration()
 	}
 }
 
+
+/**
+ * @brief Utility function to increment specific fields of TimeTypeDef struct.
+ */
 void IncrementTime(RTC_TimeTypeDef *time, uint8_t hoursDelta, uint8_t minutesDelta, uint8_t secondsDelta)
 {
 	time->Seconds += secondsDelta;
@@ -237,7 +242,8 @@ int main(void)
 			sprintf(msg, "%i:%i:%i Lux is %li\r\n", time.Hours, time.Minutes, time.Seconds, lux);
 			HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 
-			if (lux < 100)
+			// Turn relay only after 8am if light drops below threshold.
+			if (lux < LIGHT_THRESHOLD && time.Hours > 8)
 			{
 				HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_Pin, GPIO_PIN_SET);
 			}
@@ -247,6 +253,7 @@ int main(void)
 			}
 
 			// Setup an alarm to wake us up.
+			// TODO: should be refactored into a separate function.
 			HAL_RTC_DeactivateAlarm(&hrtc, RTC_ALARM_A);
 			alarm.AlarmMask = RTC_ALARMMASK_MINUTES;
 			alarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_ALL;

@@ -43,11 +43,15 @@
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
 
+RTC_HandleTypeDef hrtc;
+
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 I2C_HandleTypeDef *g_hi2c1;
-uint8_t enterTimeConfig = 0;
+uint8_t timeConfigState = 0;
+uint8_t wasSleeping = 0;
+uint32_t lastButtonInt = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -55,46 +59,100 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/**
+ * @brief State machine to configure the clock.
+ */
 void TimeConfiguration()
 {
 	HAL_StatusTypeDef status = HAL_OK;
 	char msg[40];
-	uint8_t hour = 0, minute = 0;
+	RTC_TimeTypeDef time;
+	int i;
 
-	while (enterTimeConfig == 1)
+	time.Hours = 0;
+	time.Minutes = 0;
+	time.Seconds = 0;
+	time.TimeFormat = RTC_HOURFORMAT12_AM;
+	time.SubSeconds = time.SecondFraction = 0;
+	time.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+	time.StoreOperation = RTC_STOREOPERATION_SET;
+
+	// Turn on LED to indicate we're in configuration mode.
+	HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_SET);
+
+	while (timeConfigState < 3)
 	{
-		if (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET)
+		if (timeConfigState == 1) // Counting presses of BTN2 to increment the hour.
 		{
-			while (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET) ;
-			hour++;
+			if (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET)
+			{
+				while (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET) ;
 
-			sprintf(msg, "Incrementing hour to %i\r\n", hour);
-			HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
+				time.Hours = (time.Hours + 1) % 24;
+
+				sprintf(msg, "Incrementing hour to %i\r\n", time.Hours);
+				HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
+			}
+		}
+		else if (timeConfigState == 2) // Counting presses of BTN2 to increment the minutes.
+		{
+			if (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET)
+			{
+				while (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET) ;
+
+				time.Minutes = (time.Minutes + 1) % 60;
+
+				sprintf(msg, "Incrementing minute to %i\r\n", time.Minutes);
+				HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
+			}
 		}
 	}
 
-	while (enterTimeConfig == 2)
+	status = HAL_RTC_SetTime(&hrtc, &time, RTC_FORMAT_BIN);
+	if (status == HAL_OK)
 	{
-		if (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET)
-		{
-			while (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET) ;
-			minute++;
-
-			sprintf(msg, "Incrementing minute to %i\r\n", hour);
-			HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
-		}
+		sprintf(msg, "Setting time to %i:%i\r\n", time.Hours, time.Minutes);
 	}
-
-	strcpy(msg, "Done with time config\r\n");
+	else
+	{
+		strcpy(msg, "Failed to set time.\r\n");
+	}
 	HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 
-	enterTimeConfig = 0;
+	timeConfigState = 0;
+
+	// Blink LED to indicate completion
+	for (i = 0; i < 5; i++)
+	{
+		HAL_GPIO_TogglePin(ConfigLED_GPIO_Port, ConfigLED_Pin);
+		HAL_Delay(200);
+	}
+}
+
+void IncrementTime(RTC_TimeTypeDef *time, uint8_t hoursDelta, uint8_t minutesDelta, uint8_t secondsDelta)
+{
+	time->Seconds += secondsDelta;
+	if (time->Seconds > 60)
+	{
+		time->Seconds -= 60;
+		time->Minutes++;
+	}
+
+	time->Minutes += minutesDelta;
+	if (time->Minutes > 60)
+	{
+		time->Minutes -= 60;
+		time->Hours++;
+	}
+
+	time->Hours = (time->Hours + hoursDelta) % 24;
 }
 
 /* USER CODE END 0 */
@@ -105,36 +163,39 @@ void TimeConfiguration()
   */
 int main(void)
 {
-  /* USER CODE BEGIN 1 */
+	/* USER CODE BEGIN 1 */
 	char msg[40];
 	HAL_StatusTypeDef status = HAL_OK;
 	long lux;
-	uint32_t lastRead = 0;
+	RTC_TimeTypeDef time;
+	RTC_DateTypeDef date;
+	RTC_AlarmTypeDef alarm;
 
-  /* USER CODE END 1 */
+	/* USER CODE END 1 */
 
-  /* MCU Configuration--------------------------------------------------------*/
+	/* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+	HAL_Init();
 
-  /* USER CODE BEGIN Init */
+	/* USER CODE BEGIN Init */
 
-  /* USER CODE END Init */
+	/* USER CODE END Init */
 
-  /* Configure the system clock */
-  SystemClock_Config();
+	/* Configure the system clock */
+	SystemClock_Config();
 
-  /* USER CODE BEGIN SysInit */
+	/* USER CODE BEGIN SysInit */
 
-  /* USER CODE END SysInit */
+	/* USER CODE END SysInit */
 
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_USART2_UART_Init();
-  MX_I2C1_Init();
-  /* USER CODE BEGIN 2 */
-  g_hi2c1 = &hi2c1;
+	/* Initialize all configured peripherals */
+	MX_GPIO_Init();
+	MX_USART2_UART_Init();
+	MX_I2C1_Init();
+	MX_RTC_Init();
+	/* USER CODE BEGIN 2 */
+	g_hi2c1 = &hi2c1;
 
 	strcpy(msg, "Christmas Lights 0.2\r\n");
 	HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
@@ -144,6 +205,8 @@ int main(void)
 	{
 		strcpy(msg, "Light sensor ready\r\n");
 		HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
+
+		light_init();
 	}
 	else
 	{
@@ -151,42 +214,69 @@ int main(void)
 		HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 	}
 
-	light_init();
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-		if (enterTimeConfig)
+	while (1)
+	{
+		if (timeConfigState)
 		{
 			strcpy(msg, "Entering time configuration\r\n");
 			HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 
-			HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_SET);
-
 			TimeConfiguration();
-
-			HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_RESET);
 		}
+		else
+		{
+			status = HAL_RTC_GetTime(&hrtc, &time, RTC_FORMAT_BIN);
+			if (status == HAL_OK)
+			  HAL_RTC_GetDate(&hrtc, &date, RTC_FORMAT_BIN); // Must call this to unlock registers after GetTime
 
-	  if (lastRead == 0 || HAL_GetTick() - lastRead > 5000)
-	  {
-		  lux = light_readVisibleLux();
-		  sprintf(msg, "Lux is %li\r\n", lux);
-		  HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
-		  lastRead = HAL_GetTick();
+			lux = light_readVisibleLux();
+			sprintf(msg, "%i:%i:%i Lux is %li\r\n", time.Hours, time.Minutes, time.Seconds, lux);
+			HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 
-		  if (lux < 500)
-		  {
-			  HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_Pin, GPIO_PIN_SET);
-		  }
-		  else
-		  {
-			  HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_Pin, GPIO_PIN_RESET);
-		  }
-	  }
+			if (lux < 100)
+			{
+				HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_Pin, GPIO_PIN_SET);
+			}
+			else
+			{
+				HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_Pin, GPIO_PIN_RESET);
+			}
+
+			// Setup an alarm to wake us up.
+			HAL_RTC_DeactivateAlarm(&hrtc, RTC_ALARM_A);
+			alarm.AlarmMask = RTC_ALARMMASK_MINUTES;
+			alarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_ALL;
+			alarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
+			alarm.AlarmDateWeekDay = 1;
+			alarm.Alarm = RTC_ALARM_A;
+
+			if (time.Hours < 8) // Past midnight, set alarm for 8am
+			{
+				alarm.AlarmTime.Hours = 8;
+				alarm.AlarmTime.Minutes = 0;
+				alarm.AlarmTime.Seconds = 0;
+			}
+			else // Otherwise, alarm for 5 minutes from now.
+			{
+				alarm.AlarmTime = time;
+				IncrementTime(&alarm.AlarmTime, 0, 5, 0);
+			}
+
+			sprintf(msg, "Going to sleep until %i:%i:%i\r\n",
+					alarm.AlarmTime.Hours, alarm.AlarmTime.Minutes, alarm.AlarmTime.Seconds);
+			HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
+
+			status = HAL_RTC_SetAlarm_IT(&hrtc, &alarm, RTC_FORMAT_BIN);
+
+			// Enter sleep mode. Must suspend SysTick otherwise its interrupts may wake us up.
+			wasSleeping = 1;
+			HAL_SuspendTick();
+			HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+		}
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -207,9 +297,10 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -227,8 +318,9 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_I2C1;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_I2C1|RCC_PERIPHCLK_RTC;
   PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
+  PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
@@ -278,6 +370,86 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+  RTC_AlarmTypeDef sAlarm = {0};
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN Check_RTC_BKUP */
+
+  /* USER CODE END Check_RTC_BKUP */
+
+  /** Initialize RTC and set the Time and Date
+  */
+  sTime.Hours = 0;
+  sTime.Minutes = 0;
+  sTime.Seconds = 0;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Date = 1;
+  sDate.Year = 0;
+
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Enable the Alarm A
+  */
+  sAlarm.AlarmTime.Hours = 0;
+  sAlarm.AlarmTime.Minutes = 0;
+  sAlarm.AlarmTime.Seconds = 0;
+  sAlarm.AlarmTime.SubSeconds = 0;
+  sAlarm.AlarmTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sAlarm.AlarmTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  sAlarm.AlarmMask = RTC_ALARMMASK_NONE;
+  sAlarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_ALL;
+  sAlarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
+  sAlarm.AlarmDateWeekDay = 1;
+  sAlarm.Alarm = RTC_ALARM_A;
+  if (HAL_RTC_SetAlarm_IT(&hrtc, &sAlarm, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
 
 }
 
@@ -359,7 +531,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : BTN1_Pin */
   GPIO_InitStruct.Pin = BTN1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(BTN1_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
@@ -372,7 +544,31 @@ static void MX_GPIO_Init(void)
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	enterTimeConfig++;
+	if (GPIO_Pin == BTN1_Pin)
+	{
+		// Resume clocks if the button press woke us up.
+		if (wasSleeping)
+		{
+			SystemClock_Config();
+			HAL_ResumeTick();
+		}
+
+		// Increment time configuration state, taking care to wait for button debounce.
+		if (lastButtonInt == 0 || HAL_GetTick() - lastButtonInt > 100)
+		{
+			timeConfigState++;
+		}
+		lastButtonInt = HAL_GetTick();
+	}
+	wasSleeping = 0;
+}
+
+void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc)
+{
+	// Restore SysTick when the alarm wakes us up.
+	SystemClock_Config();
+	HAL_ResumeTick();
+	wasSleeping = 0;
 }
 /* USER CODE END 4 */
 

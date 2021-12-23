@@ -33,7 +33,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define LIGHT_THRESHOLD 100 // How dim it must be (in lux) to turn relay on.
+#define LIGHT_THRESHOLD 25 // How dim it must be (in lux) to turn relay on.
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -62,6 +62,9 @@ static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
+void TimeConfiguration();
+void ReportLux(long lux);
+void IncrementTime(RTC_TimeTypeDef *time, uint8_t hoursDelta, uint8_t minutesDelta, uint8_t secondsDelta);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -94,7 +97,7 @@ void TimeConfiguration()
 		{
 			if (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET)
 			{
-				while (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET) ;
+				HAL_Delay(200); // debounce
 
 				time.Hours = (time.Hours + 1) % 24;
 
@@ -106,7 +109,7 @@ void TimeConfiguration()
 		{
 			if (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET)
 			{
-				while (HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_SET) ;
+				HAL_Delay(200); // debounce
 
 				time.Minutes = (time.Minutes + 1) % 60;
 
@@ -137,6 +140,29 @@ void TimeConfiguration()
 	}
 }
 
+/**
+ * @brief Flashes the config LED as many times as the integer log of lux.
+ * @param lux The measured amount of lux.
+ */
+void ReportLux(long lux)
+{
+	long log = 0;
+	for (; lux > 0;) {
+		lux = lux / 10;
+		if (lux > 0)
+		{
+			log++;
+		}
+	}
+
+	for (long i = 0; i <= log; i++)
+	{
+		HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_SET);
+		HAL_Delay(1000);
+		HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_RESET);
+		HAL_Delay(1000);
+	}
+}
 
 /**
  * @brief Utility function to increment specific fields of TimeTypeDef struct.
@@ -168,7 +194,7 @@ void IncrementTime(RTC_TimeTypeDef *time, uint8_t hoursDelta, uint8_t minutesDel
   */
 int main(void)
 {
-	/* USER CODE BEGIN 1 */
+  /* USER CODE BEGIN 1 */
 	char msg[40];
 	HAL_StatusTypeDef status = HAL_OK;
 	long lux;
@@ -176,33 +202,33 @@ int main(void)
 	RTC_DateTypeDef date;
 	RTC_AlarmTypeDef alarm;
 
-	/* USER CODE END 1 */
+  /* USER CODE END 1 */
 
-	/* MCU Configuration--------------------------------------------------------*/
+  /* MCU Configuration--------------------------------------------------------*/
 
-	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-	HAL_Init();
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
 
-	/* USER CODE BEGIN Init */
+  /* USER CODE BEGIN Init */
 
-	/* USER CODE END Init */
+  /* USER CODE END Init */
 
-	/* Configure the system clock */
-	SystemClock_Config();
+  /* Configure the system clock */
+  SystemClock_Config();
 
-	/* USER CODE BEGIN SysInit */
+  /* USER CODE BEGIN SysInit */
 
-	/* USER CODE END SysInit */
+  /* USER CODE END SysInit */
 
-	/* Initialize all configured peripherals */
-	MX_GPIO_Init();
-	MX_USART2_UART_Init();
-	MX_I2C1_Init();
-	MX_RTC_Init();
-	/* USER CODE BEGIN 2 */
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_USART2_UART_Init();
+  MX_I2C1_Init();
+  MX_RTC_Init();
+  /* USER CODE BEGIN 2 */
 	g_hi2c1 = &hi2c1;
 
-	strcpy(msg, "Christmas Lights 0.2\r\n");
+	strcpy(msg, "Christmas Lights 0.3\r\n");
 	HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 
 	status = HAL_I2C_IsDeviceReady(&hi2c1, 0x29 << 1, 10, HAL_MAX_DELAY);
@@ -251,6 +277,8 @@ int main(void)
 			{
 				HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_Pin, GPIO_PIN_RESET);
 			}
+
+			ReportLux(lux);
 
 			// Setup an alarm to wake us up.
 			// TODO: should be refactored into a separate function.
@@ -518,7 +546,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : RELAY_Pin */
   GPIO_InitStruct.Pin = RELAY_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(RELAY_GPIO_Port, &GPIO_InitStruct);
 
@@ -561,7 +589,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		}
 
 		// Increment time configuration state, taking care to wait for button debounce.
-		if (lastButtonInt == 0 || HAL_GetTick() - lastButtonInt > 100)
+		if (lastButtonInt == 0 || HAL_GetTick() - lastButtonInt > 200)
 		{
 			timeConfigState++;
 		}

@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include "string.h"
 #include "stdio.h"
+#include "stdbool.h"
 #include "light_sensor.h"
 /* USER CODE END Includes */
 
@@ -33,7 +34,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define LIGHT_THRESHOLD 25 // How dim it must be (in lux) to turn relay on.
+#define LIGHT_THRESHOLD 20 // How dim it must be (in lux) to turn relay on.
+#define SLEEP_MINUTES   10 // Minutes we'll sleep before checking lux again
+#define SLEEP_SECONDS    0 // Ditto seconds
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -62,9 +65,11 @@ static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
-void TimeConfiguration();
-void ReportLux(long lux);
+bool TimeConfiguration();
+bool ReportLux(long lux);
 void IncrementTime(RTC_TimeTypeDef *time, uint8_t hoursDelta, uint8_t minutesDelta, uint8_t secondsDelta);
+bool LightsShouldBeOn(const RTC_TimeTypeDef *time);
+bool ConfigureAlarm(const RTC_TimeTypeDef *time);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -72,8 +77,9 @@ void IncrementTime(RTC_TimeTypeDef *time, uint8_t hoursDelta, uint8_t minutesDel
 
 /**
  * @brief State machine to configure the clock.
+ * TODO: add error checking
  */
-void TimeConfiguration()
+bool TimeConfiguration()
 {
 	HAL_StatusTypeDef status = HAL_OK;
 	char msg[40];
@@ -132,20 +138,24 @@ void TimeConfiguration()
 
 	timeConfigState = 0;
 
-	// Blink LED to indicate completion
+	// Blink LED twice to indicate completion
 	for (i = 0; i < 5; i++)
 	{
 		HAL_GPIO_TogglePin(ConfigLED_GPIO_Port, ConfigLED_Pin);
 		HAL_Delay(200);
 	}
+
+	return true;
 }
 
 /**
  * @brief Flashes the config LED as many times as the integer log of lux.
  * @param lux The measured amount of lux.
+ * TODO: add error checking
  */
-void ReportLux(long lux)
+bool ReportLux(long lux)
 {
+	// Do a rough log10 approximation.
 	long log = 0;
 	for (; lux > 0;) {
 		lux = lux / 10;
@@ -155,13 +165,14 @@ void ReportLux(long lux)
 		}
 	}
 
-	for (long i = 0; i <= log; i++)
+	// Blink the LED
+	for (long i = 0; i < (log+1) * 2; i++)
 	{
-		HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_SET);
-		HAL_Delay(1000);
-		HAL_GPIO_WritePin(ConfigLED_GPIO_Port, ConfigLED_Pin, GPIO_PIN_RESET);
-		HAL_Delay(1000);
+		HAL_GPIO_TogglePin(ConfigLED_GPIO_Port, ConfigLED_Pin);
+		HAL_Delay(500);
 	}
+
+	return true;
 }
 
 /**
@@ -186,6 +197,53 @@ void IncrementTime(RTC_TimeTypeDef *time, uint8_t hoursDelta, uint8_t minutesDel
 	time->Hours = (time->Hours + hoursDelta) % 24;
 }
 
+/**
+ * @brief Determines if lights (relay) should be on at at given time.
+ * @param time Pointer to a RTC_TimeTypeDef HAL structure containing the time.
+ */
+bool LightsShouldBeOn(const RTC_TimeTypeDef *time)
+{
+	return time->Hours >= 8 && time->Hours < 23;
+}
+
+/**
+ * @brief Sets up an alarm to wake up the MCU.
+ */
+bool ConfigureAlarm(const RTC_TimeTypeDef *time)
+{
+	HAL_StatusTypeDef status = HAL_OK;
+	RTC_AlarmTypeDef alarm;
+	char msg[40];
+
+	status = HAL_RTC_DeactivateAlarm(&hrtc, RTC_ALARM_A);
+	if (status != HAL_OK)
+		return false;
+
+	alarm.AlarmMask = RTC_ALARMMASK_MINUTES;
+	alarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_ALL;
+	alarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
+	alarm.AlarmDateWeekDay = 1;
+	alarm.Alarm = RTC_ALARM_A;
+
+	if (LightsShouldBeOn(time)) // if lights should be on now, set alarm for 30 min
+	{
+		alarm.AlarmTime = *time;
+		IncrementTime(&alarm.AlarmTime, 0, SLEEP_MINUTES, SLEEP_SECONDS);
+	}
+	else // Otherwise, set alarm for next day 8am
+	{
+		alarm.AlarmTime.Hours = 8;
+		alarm.AlarmTime.Minutes = 0;
+		alarm.AlarmTime.Seconds = 0;
+	}
+
+	sprintf(msg, "Going to sleep until %i:%i:%i\r\n",
+			alarm.AlarmTime.Hours, alarm.AlarmTime.Minutes, alarm.AlarmTime.Seconds);
+	HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
+
+	return HAL_RTC_SetAlarm_IT(&hrtc, &alarm, RTC_FORMAT_BIN) == HAL_OK;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -200,7 +258,6 @@ int main(void)
 	long lux;
 	RTC_TimeTypeDef time;
 	RTC_DateTypeDef date;
-	RTC_AlarmTypeDef alarm;
 
   /* USER CODE END 1 */
 
@@ -228,7 +285,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	g_hi2c1 = &hi2c1;
 
-	strcpy(msg, "Christmas Lights 0.3\r\n");
+	strcpy(msg, "Christmas Lights 0.4\r\n");
 	HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 
 	status = HAL_I2C_IsDeviceReady(&hi2c1, 0x29 << 1, 10, HAL_MAX_DELAY);
@@ -269,7 +326,7 @@ int main(void)
 			HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 
 			// Turn relay only after 8am if light drops below threshold.
-			if (lux < LIGHT_THRESHOLD && time.Hours > 8)
+			if (LightsShouldBeOn(&time) && lux < LIGHT_THRESHOLD)
 			{
 				HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_Pin, GPIO_PIN_SET);
 			}
@@ -281,33 +338,9 @@ int main(void)
 			ReportLux(lux);
 
 			// Setup an alarm to wake us up.
-			// TODO: should be refactored into a separate function.
-			HAL_RTC_DeactivateAlarm(&hrtc, RTC_ALARM_A);
-			alarm.AlarmMask = RTC_ALARMMASK_MINUTES;
-			alarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_ALL;
-			alarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
-			alarm.AlarmDateWeekDay = 1;
-			alarm.Alarm = RTC_ALARM_A;
+			ConfigureAlarm(&time);
 
-			if (time.Hours < 8) // Past midnight, set alarm for 8am
-			{
-				alarm.AlarmTime.Hours = 8;
-				alarm.AlarmTime.Minutes = 0;
-				alarm.AlarmTime.Seconds = 0;
-			}
-			else // Otherwise, alarm for 5 minutes from now.
-			{
-				alarm.AlarmTime = time;
-				IncrementTime(&alarm.AlarmTime, 0, 5, 0);
-			}
-
-			sprintf(msg, "Going to sleep until %i:%i:%i\r\n",
-					alarm.AlarmTime.Hours, alarm.AlarmTime.Minutes, alarm.AlarmTime.Seconds);
-			HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
-
-			status = HAL_RTC_SetAlarm_IT(&hrtc, &alarm, RTC_FORMAT_BIN);
-
-			// Enter sleep mode. Must suspend SysTick otherwise its interrupts may wake us up.
+			// Enter sleep mode. Must suspend SysTick otherwise its interrupt will wake us up.
 			wasSleeping = 1;
 			HAL_SuspendTick();
 			HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);

@@ -181,14 +181,14 @@ bool ReportLux(long lux)
 void IncrementTime(RTC_TimeTypeDef *time, uint8_t hoursDelta, uint8_t minutesDelta, uint8_t secondsDelta)
 {
 	time->Seconds += secondsDelta;
-	if (time->Seconds > 60)
+	if (time->Seconds >= 60)
 	{
 		time->Seconds -= 60;
 		time->Minutes++;
 	}
 
 	time->Minutes += minutesDelta;
-	if (time->Minutes > 60)
+	if (time->Minutes >= 60)
 	{
 		time->Minutes -= 60;
 		time->Hours++;
@@ -219,7 +219,7 @@ bool ConfigureAlarm(const RTC_TimeTypeDef *time)
 	if (status != HAL_OK)
 		return false;
 
-	alarm.AlarmMask = RTC_ALARMMASK_MINUTES;
+	alarm.AlarmMask = RTC_ALARMMASK_DATEWEEKDAY;
 	alarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_ALL;
 	alarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
 	alarm.AlarmDateWeekDay = 1;
@@ -285,7 +285,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	g_hi2c1 = &hi2c1;
 
-	strcpy(msg, "Christmas Lights 0.4\r\n");
+	strcpy(msg, "Christmas Lights 0.5\r\n");
 	HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 
 	status = HAL_I2C_IsDeviceReady(&hi2c1, 0x29 << 1, 10, HAL_MAX_DELAY);
@@ -322,6 +322,7 @@ int main(void)
 			  HAL_RTC_GetDate(&hrtc, &date, RTC_FORMAT_BIN); // Must call this to unlock registers after GetTime
 
 			lux = light_readVisibleLux();
+
 			sprintf(msg, "%i:%i:%i Lux is %li\r\n", time.Hours, time.Minutes, time.Seconds, lux);
 			HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 5000);
 
